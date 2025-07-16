@@ -9,7 +9,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-west-2"
+  region = "eu-central-1"
 }
 
 data "aws_ami" "ubuntu" {
@@ -212,7 +212,7 @@ resource "aws_security_group" "webserver" {
 #====================================
 
 resource "aws_instance" "bastion" {
-  ami                         = "ami-02868af3c3df4b3aa"
+  ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
   key_name                    = var.key_name
   subnet_id                   = aws_subnet.public[0].id
