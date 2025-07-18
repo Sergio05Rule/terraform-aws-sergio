@@ -1,4 +1,11 @@
 #!/bin/bash
+
+
+#add log
+set -e
+exec > /tmp/api-install.log 2>&1
+
+
 apt-get update
 echo API - download latest release, install, and start...
 mkdir -p /tmp/cloudacademy-app/voteapp-api-go
