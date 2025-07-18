@@ -5,10 +5,11 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.0.0"
     }
-    template = {
-      source  = "hashicorp/template"
-      version = "2.2.0"
-    }
+    
+    #template = {
+     # source  = "hashicorp/template"
+     # version = "2.2.0"
+    #}
   }
 }
 
@@ -30,7 +31,7 @@ data "aws_ami" "ubuntu" {
 }
 
 #====================================
-
+/*
 data "template_cloudinit_config" "config" {
   gzip          = false
   base64_encode = false
@@ -82,6 +83,7 @@ data "template_cloudinit_config" "config" {
     EOF    
   }
 }
+*/
 
 #====================================
 
@@ -103,7 +105,11 @@ resource "aws_launch_template" "apptemplate" {
     }
   }
 
-  user_data = base64encode(data.template_cloudinit_config.config.rendered)
+  #user_data = base64encode(data.template_cloudinit_config.config.rendered)
+   user_data = base64encode(templatefile("${path.module}/userdata.sh", {
+    ALB_DNS            = aws_lb.alb1.dns_name
+    MONGODB_PRIVATEIP  = var.mongodb_ip
+  }))
 }
 
 #====================================

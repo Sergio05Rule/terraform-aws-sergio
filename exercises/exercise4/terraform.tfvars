@@ -1,5 +1,8 @@
-availability_zones    = ["us-west-2a", "us-west-2b"]
+availability_zones    = ["eu-central-1a", "eu-central-1b"]
 cidr_block            = "10.0.0.0/16"
 bastion_instance_type = "t3.micro"
 app_instance_type     = "t3.micro"
 db_instance_type      = "t3.micro"
+
+key_name           = "sabascia-ex1"
+workstation_ip     = "94.252.74.22/32" # da aggiornare per permettere accesso a bastion
