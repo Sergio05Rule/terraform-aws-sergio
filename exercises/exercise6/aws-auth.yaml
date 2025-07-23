@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapUsers: |
+    - userarn: arn:aws:iam::664185728766:user/sergio.abascia@aspectinnovate.com
+      username: sergio.abascia@aspectinnovate.com
+      groups:
+        - system:masters
+  mapRoles: |
+    - rolearn: arn:aws:iam::664185728766:role/cloudacademydevops-eks-2025-cluster-role
+      username: eks-admin
+      groups:
+        - system:masters

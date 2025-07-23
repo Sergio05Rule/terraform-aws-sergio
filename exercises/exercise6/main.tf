@@ -18,7 +18,7 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-west-2"
+  region = "eu-central-1"
 }
 
 data "aws_availability_zones" "available" {}
@@ -36,7 +36,7 @@ locals {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = ">= 5.0.0"
+  version = ">= 5.0.0, < 6.0.0"
 
   name = local.name
   cidr = local.vpc_cidr
@@ -81,6 +81,40 @@ module "vpc" {
 }
 
 #====================================
+resource "aws_iam_role" "eks_cluster_role" {
+  name = "cloudacademydevops-eks-2025-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Service = "eks.amazonaws.com"
+        },
+        Action = "sts:AssumeRole"
+      },
+      {
+        Effect = "Allow",
+        Principal = {
+          AWS = "arn:aws:iam::664185728766:user/sergio.abascia@aspectinnovate.com"
+        },
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_AmazonEKSClusterPolicy" {
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_AmazonEKSVPCResourceController" {
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+}
+
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
@@ -100,13 +134,15 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  create_iam_role = false
+  iam_role_arn    = aws_iam_role.eks_cluster_role.arn
+
   eks_managed_node_groups = {
     default = {
       use_custom_launch_template = false
 
       instance_types = ["m5.large"]
-      capacity_type  = "SPOT" # useful for demos and dev purposes
-      # capacity_type = "ON_DEMAND"
+      capacity_type  = "ON_DEMAND" # "SPOT" # useful for demos and dev purposes
 
       disk_size = 10
 
@@ -122,18 +158,74 @@ module "eks" {
   }
 }
 
+data "aws_eks_cluster_auth" "this" {
+  name = module.eks.cluster_name
+
+}
+
 #====================================
+# todo comment at first apply 
+# after first aplly run -  Mappa manualmente il tuo IAM user in aws-auth
+# aws eks update-kubeconfig --region eu-central-1 --name cloudacademydevops-eks-2025
+# applica aws-auth.yaml
+# kubectl apply -f aws-auth.yaml
+# inserire my iam user as access to the cluster (GUI), since questo viene gerenato da un role ad hoc e questo e' l unico ruolo mappato nel aws-auth (file interno a kubernetes)
+# terraform apply (2)
+
+
+module "eks_aws_auth" {
+  source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
+  version = ">= 19.15.0"
+
+  depends_on = [module.eks]
+
+  manage_aws_auth_configmap = true
+
+  aws_auth_users = [
+    {
+      userarn  = "arn:aws:iam::664185728766:user/sergio.abascia@aspectinnovate.com"
+      username = "sergio.abascia@aspectinnovate.com"
+      groups   = ["system:masters"]
+    }
+  ]
+
+  # potrebbe non servire, ma lo lascio per sicurezza
+  aws_auth_roles = [
+    {
+      rolearn  = aws_iam_role.eks_cluster_role.arn
+      username = "cloudacademydevops-eks-admin"
+      groups   = ["system:masters"]
+    }
+  ]
+  
+  providers = {
+    kubernetes = kubernetes
+  }
+}
+
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  token                  = data.aws_eks_cluster_auth.this.token
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+  }
+}
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-    exec {
+    token                  = data.aws_eks_cluster_auth.this.token
+    
+    exec = {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
       args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
+      }
   }
 }
 
@@ -145,35 +237,17 @@ resource "helm_release" "nginx_ingress" {
   namespace        = "nginx-ingress"
   create_namespace = true
 
-  set {
+
+  set = [
+  {
     name  = "service.type"
     value = "ClusterIP"
-  }
-
-  set {
+  },
+  {
     name  = "controller.service.name"
     value = "nginx-ingress-controller"
-  }
+  }]
 }
-
-# resource "helm_release" "argo" {
-#   name = "argo"
-
-#   repository       = "https://argoproj.github.io/argo-helm"
-#   chart            = "argo-cd"
-#   namespace        = "argo"
-#   create_namespace = true
-
-#   # set {
-#   #   name  = "service.type"
-#   #   value = "ClusterIP"
-#   # }
-
-#   # set {
-#   #   name  = "controller.service.name"
-#   #   value = "nginx-ingress-controller"
-#   # }
-# }
 
 resource "terraform_data" "deploy_app" {
   triggers_replace = {
@@ -190,6 +264,7 @@ resource "terraform_data" "deploy_app" {
   }
 
   depends_on = [
-    helm_release.nginx_ingress
+    helm_release.nginx_ingress,
+    module.eks_aws_auth
   ]
 }
